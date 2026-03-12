@@ -1,14 +1,20 @@
 from playwright.sync_api import sync_playwright
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlmodel import Session, select
 from backend.models.availability import Circuit, AvailabilityLog
 from backend.db.session import engine
 import time
 
+def get_peru_time():
+    """페루 현지 시간(UTC-5) 반환"""
+    return datetime.utcnow() - timedelta(hours=5)
+
 def crawl_and_save():
     """마추픽추 티켓 현황을 크롤링하고 데이터베이스에 저장"""
-    print(f"[{datetime.now()}] Starting crawl task...")
+    # 로그 출력도 현지 시간 기준으로
+    peru_now = get_peru_time()
+    print(f"[{peru_now}] Starting crawl task (Peru Time)...")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -43,7 +49,7 @@ def crawl_and_save():
                 # 가장 최근의 응답 데이터 사용
                 latest_data = availability_data[-1]
                 save_to_db(latest_data)
-                print(f"Successfully saved {len(latest_data)} routes to database.")
+                print(f"Successfully saved {len(latest_data)} routes to database (Peru Time).")
             else:
                 print("Failed to capture availability data.")
 
@@ -54,6 +60,7 @@ def crawl_and_save():
 
 def save_to_db(data_list):
     """크롤링된 데이터를 DB 모델로 변환하여 저장"""
+    peru_now = get_peru_time()
     with Session(engine) as session:
         for item in data_list:
             # 1. 코스(Circuit) 정보 업데이트 또는 생성
@@ -76,7 +83,7 @@ def save_to_db(data_list):
                 total=item["ncupo"],
                 available=item["ncupoActual"],
                 booked=item["ncupo"] - item["ncupoActual"],
-                timestamp=datetime.utcnow()
+                timestamp=peru_now
             )
             session.add(log)
         

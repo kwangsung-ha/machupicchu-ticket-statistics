@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, Query
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from backend.db.session import init_db, get_session
 from backend.models.availability import Circuit, AvailabilityLog
 from backend.services.crawler import crawl_and_save
@@ -60,36 +60,50 @@ from typing import List, Optional
 
 # ... (기존 임포트 유지) ...
 
+def get_peru_now():
+    return datetime.utcnow() - timedelta(hours=5)
+
 @app.get("/api/availability/history")
 def get_availability_history(
     nidRuta: Optional[int] = Query(default=None), 
-    days: int = Query(default=7, le=90),
+    start_date: Optional[str] = Query(default=None),
+    end_date: Optional[str] = Query(default=None),
     session: Session = Depends(get_session)
 ):
-    """특정 코스 또는 전체의 지난 N일간 추이 데이터 조회 (Circuit 정보 포함)"""
-    start_date = datetime.utcnow() - timedelta(days=days)
+    """지정된 날짜 범위 내의 모든 히스토리 데이터 조회 (시간대 정보 보존)"""
     
-    # AvailabilityLog와 Circuit을 Join하여 route 이름을 가져옴
+    peru_now = get_peru_now()
+    if not start_date:
+        start_dt = peru_now - timedelta(days=7)
+    else:
+        start_dt = datetime.fromisoformat(start_date)
+        
+    if not end_date:
+        end_dt = peru_now
+    else:
+        end_dt = datetime.fromisoformat(end_date)
+    
+    # 집계 로직을 제거하고 모든 로그를 Join하여 반환
     statement = select(AvailabilityLog, Circuit.ruta).join(
         Circuit, AvailabilityLog.nidRuta == Circuit.nidRuta
     ).where(
-        AvailabilityLog.timestamp >= start_date
-    )
+        AvailabilityLog.timestamp >= start_dt,
+        AvailabilityLog.timestamp <= end_dt
+    ).order_by(AvailabilityLog.timestamp.asc())
     
     if nidRuta is not None:
         statement = statement.where(AvailabilityLog.nidRuta == nidRuta)
         
-    statement = statement.order_by(AvailabilityLog.timestamp.asc())
-    
     results = session.exec(statement).all()
     
-    # 데이터를 프론트엔드가 쓰기 편하게 가공
     return [
         {
             **log.model_dump(),
             "route": ruta
         } for log, ruta in results
     ]
+
+# Hourly stats endpoint 제거됨 (요청에 따라)
 
 # --- Static Files Serving (React Frontend) ---
 

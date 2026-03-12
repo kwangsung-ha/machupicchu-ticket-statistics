@@ -8,12 +8,16 @@ from backend.models.availability import Circuit, AvailabilityLog
 DATABASE_URL = "sqlite:///./data/machupicchu.db"
 engine = create_engine(DATABASE_URL)
 
+def get_peru_now():
+    # UTC 기준에서 5시간을 빼서 페루 현지 시간 계산
+    return datetime.utcnow() - timedelta(hours=5)
+
 def seed():
     # 테이블 생성
     SQLModel.metadata.create_all(engine)
     
     with Session(engine) as session:
-        # 1. 기초 회로/경로 데이터 (기존 데이터가 없는 경우에만)
+        # 1. 기초 회로/경로 데이터
         circuits_data = [
             {"nidLugar": 1, "nidCircuito": 1, "nidRuta": 7, "circuito": "Circuito 1 - Panorámico", "ruta": "Ruta 1-A: Montaña Machupicchu", "total": 50},
             {"nidLugar": 1, "nidCircuito": 1, "nidRuta": 8, "circuito": "Circuito 1 - Panorámico", "ruta": "Ruta 1-B: Terraza superior", "total": 100},
@@ -23,7 +27,6 @@ def seed():
             {"nidLugar": 1, "nidCircuito": 3, "nidRuta": 14, "circuito": "Circuito 3 - Machupicchu realeza", "ruta": "Ruta 3-B: Realeza diseñada", "total": 100},
         ]
         
-        # 회로 정보 추가
         for c in circuits_data:
             existing = session.query(Circuit).filter(Circuit.nidRuta == c["nidRuta"]).first()
             if not existing:
@@ -35,38 +38,48 @@ def seed():
                     ruta=c["ruta"]
                 )
                 session.add(circuit)
-        
         session.commit()
-        print("Circuits seeded.")
+        print("Circuits verified.")
 
-        # 2. 지난 30일간의 더미 로그 데이터 생성
-        now = datetime.utcnow()
-        for i in range(30 * 24): # 30일 * 24시간
-            log_time = now - timedelta(hours=i)
-            
-            for c in circuits_data:
-                total = c["total"]
-                # 시간에 따라 무작위로 예약 수(booked) 결정 (0 ~ total 사이)
-                # 최근 데이터일수록 예약이 더 많이 찬 것처럼 시뮬레이션
-                random_factor = random.uniform(0.1, 0.9)
-                booked = int(total * random_factor)
-                available = total - booked
+        # 2. 지난 3년간의 더미 로그 데이터 생성 (약 1095일)
+        peru_now = get_peru_now()
+        days_to_seed = 3 * 365
+        print(f"Seeding logs for {days_to_seed} days (4-hour intervals) in PERU TIME (UTC-5)...")
+
+        for d in range(days_to_seed):
+            for h in range(0, 24, 4): # 0, 4, 8, 12, 16, 20시 (페루 현지 시간 기준)
+                log_time = peru_now - timedelta(days=d, hours=h)
                 
-                log = AvailabilityLog(
-                    nidRuta=c["nidRuta"],
-                    total=total,
-                    booked=booked,
-                    available=available,
-                    timestamp=log_time
-                )
-                session.add(log)
+                # 성수기 반영 (6, 7, 8월은 예약률 대폭 상승)
+                month = log_time.month
+                is_peak_season = month in [6, 7, 8]
+                
+                for c in circuits_data:
+                    total = c["total"]
+                    
+                    if is_peak_season:
+                        random_factor = random.uniform(0.8, 1.0)
+                    else:
+                        random_factor = random.uniform(0.3, 0.7)
+                    
+                    booked = int(total * random_factor)
+                    available = total - booked
+                    
+                    log = AvailabilityLog(
+                        nidRuta=c["nidRuta"],
+                        total=total,
+                        booked=booked,
+                        available=available,
+                        timestamp=log_time
+                    )
+                    session.add(log)
             
-            # 성능을 위해 100개 단위로 커밋
-            if i % 100 == 0:
+            if d % 50 == 0:
+                print(f"Progress: {d}/{days_to_seed} days seeded...")
                 session.commit()
         
         session.commit()
-        print("Availability logs seeded (30 days of data).")
+        print(f"Successfully seeded 3 years of data in Peru Local Time!")
 
 if __name__ == "__main__":
     seed()

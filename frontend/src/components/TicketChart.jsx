@@ -1,7 +1,5 @@
 import React, { useMemo } from 'react';
 import { 
-  LineChart, 
-  Line, 
   XAxis, 
   YAxis, 
   CartesianGrid, 
@@ -16,22 +14,33 @@ const TicketChart = ({ data, selectedRoute }) => {
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return [];
 
-    // Group by timestamp
+    // Group by exact timestamp to preserve hourly detail
     const grouped = data.reduce((acc, curr) => {
-      // 시간대 포맷팅
       const dateObj = new Date(curr.timestamp);
-      const time = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       
-      if (!acc[time]) {
-        acc[time] = { time, timestamp: dateObj.getTime() };
+      // X축에 보일 라벨 형식: "Mar 12, 08:00"
+      const label = dateObj.toLocaleString([], { 
+        month: 'short', 
+        day: 'numeric', 
+        hour: '2-digit', 
+        minute: '2-digit',
+        hour12: false 
+      });
+      
+      const key = curr.timestamp; 
+      
+      if (!acc[key]) {
+        acc[key] = { 
+          label: label, 
+          timestamp: dateObj.getTime() 
+        };
       }
       
-      // route 이름을 키로 하여 available 값을 저장
-      acc[time][curr.route] = curr.available;
+      acc[key][curr.route] = curr.available;
       return acc;
     }, {});
 
-    // Convert to array and sort by timestamp
+    // Sort by timestamp to ensure chronological order
     return Object.values(grouped).sort((a, b) => a.timestamp - b.timestamp);
   }, [data]);
 
@@ -47,8 +56,8 @@ const TicketChart = ({ data, selectedRoute }) => {
 
   if (chartData.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-gray-500">
-        No historical data available for chart
+      <div className="flex items-center justify-center h-full text-gray-500 italic">
+        No historical data available for selected range.
       </div>
     );
   }
@@ -66,26 +75,28 @@ const TicketChart = ({ data, selectedRoute }) => {
         </defs>
         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
         <XAxis 
-          dataKey="time" 
+          dataKey="label" 
           axisLine={false}
           tickLine={false}
-          tick={{ fill: '#9ca3af', fontSize: 12 }}
+          tick={{ fill: '#9ca3af', fontSize: 10 }}
           dy={10}
+          minTickGap={50} // 시간대 정보가 많으므로 라벨 간격 확보
         />
         <YAxis 
           axisLine={false}
           tickLine={false}
-          tick={{ fill: '#9ca3af', fontSize: 12 }}
+          tick={{ fill: '#9ca3af', fontSize: 10 }}
         />
         <Tooltip 
           contentStyle={{ 
             backgroundColor: '#fff', 
-            borderRadius: '8px', 
-            border: '1px solid #e5e7eb',
-            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'
+            borderRadius: '12px', 
+            border: 'none',
+            boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)'
           }}
+          labelStyle={{ fontWeight: 'bold', color: '#374151', marginBottom: '8px' }}
         />
-        <Legend verticalAlign="top" height={36}/>
+        <Legend verticalAlign="top" height={40} iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '12px' }} />
         
         {selectedRoute === 'all' ? (
           routes.map((route, index) => (
@@ -96,8 +107,9 @@ const TicketChart = ({ data, selectedRoute }) => {
               stroke={colors[index % colors.length]}
               fillOpacity={1}
               fill={`url(#color-${index})`}
-              strokeWidth={2}
-              activeDot={{ r: 6 }}
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 4, strokeWidth: 0 }}
             />
           ))
         ) : (
@@ -108,7 +120,8 @@ const TicketChart = ({ data, selectedRoute }) => {
             fillOpacity={1}
             fill={`url(#color-${routes.indexOf(selectedRoute)})`}
             strokeWidth={3}
-            activeDot={{ r: 8 }}
+            dot={false}
+            activeDot={{ r: 6, strokeWidth: 0 }}
           />
         )}
       </AreaChart>
