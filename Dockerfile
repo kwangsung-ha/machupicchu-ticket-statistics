@@ -1,5 +1,5 @@
 # Stage 1: Build React Frontend
-FROM node:18-alpine as frontend-builder
+FROM node:18-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install
@@ -14,34 +14,21 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
-    libnss3 \
-    libnspr4 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxext6 \
-    libxfixes3 \
-    librandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
-# Poetry 설치 및 의존성 복사
+# Poetry 설치
 RUN pip install --no-cache-dir poetry
+
+# 의존성 파일 복사
 COPY pyproject.toml poetry.lock* README.md ./
 
 # Poetry 설정: 컨테이너 내부이므로 가상환경 생성을 끄고 시스템에 바로 설치
 RUN poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi --no-root
 
-# Playwright 브라우저 설치 (Chromium만)
-RUN playwright install chromium
+# Playwright 브라우저 및 시스템 의존성 자동 설치
+# install-deps 명령어가 현재 OS에 맞는 라이브러리를 자동으로 설치해줍니다.
+RUN playwright install chromium && playwright install-deps chromium
 
 # 빌드된 프론트엔드 복사
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
