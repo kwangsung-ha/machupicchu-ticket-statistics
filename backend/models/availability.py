@@ -1,6 +1,8 @@
-from sqlmodel import SQLModel, Field, create_engine, Session, select
+"""마추픽추 티켓 가용성 모델 정의 모듈"""
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional
+
+from sqlmodel import SQLModel, Field
 
 class Circuit(SQLModel, table=True):
     """코스(Circuito) 및 상세 경로(Ruta) 정보"""

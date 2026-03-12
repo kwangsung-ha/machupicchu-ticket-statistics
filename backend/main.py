@@ -1,48 +1,62 @@
-from fastapi import FastAPI, Depends, Query
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from sqlmodel import Session, select, func
-from backend.db.session import init_db, get_session
-from backend.models.availability import Circuit, AvailabilityLog
-from backend.services.crawler import crawl_and_save
-from contextlib import asynccontextmanager
-from apscheduler.schedulers.background import BackgroundScheduler
-from datetime import datetime, timedelta
-import uvicorn
+"""마추픽추 티켓 모니터링 시스템 메인 FastAPI 애플리케이션"""
 import os
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
+from typing import Optional
+
+import uvicorn
+from apscheduler.schedulers.background import BackgroundScheduler
+from fastapi import Depends, FastAPI, Query
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from loguru import logger
+from sqlmodel import Session, col, select
+
+from backend.db.session import get_session, init_db
+from backend.models.availability import AvailabilityLog, Circuit
+from backend.services.crawler import crawl_and_save
 
 # 스케줄러 설정
 scheduler = BackgroundScheduler()
-scheduler.add_job(crawl_and_save, 'interval', minutes=30)
+# 매 정각(00분) 및 30분에 실행 (Cron 방식)
+scheduler.add_job(crawl_and_save, 'cron', minute='0,30')
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(_app: FastAPI):
+    """애플리케이션 시작 및 종료 시 실행되는 이벤트 핸들러"""
+    logger.info("Initializing database...")
     init_db()
+    logger.info("Starting scheduler (Running at :00 and :30)...")
     scheduler.start()
     yield
+    logger.info("Shutting down scheduler...")
     scheduler.shutdown()
 
 app = FastAPI(title="Machu Picchu Ticket Monitor", lifespan=lifespan)
 
-# --- API Routes (반드시 정적 파일 서빙보다 위에 있어야 함) ---
+# --- API Routes ---
 
 @app.get("/api/health")
 def health_check():
+    """서버 상태 확인 엔드포인트"""
     return {"status": "ok"}
 
 @app.post("/api/crawl/now")
 def trigger_crawl():
+    """즉시 크롤링을 수행하는 엔드포인트 (수동 트리거)"""
     crawl_and_save()
     return {"message": "Crawl triggered successfully"}
 
 @app.get("/api/availability/current")
 def get_current_availability(session: Session = Depends(get_session)):
+    """모든 코스별 가장 최신 티켓 가용성 데이터를 조회"""
     circuits = session.exec(select(Circuit)).all()
     results = []
     for circuit in circuits:
+        # pylint: disable=no-member
         statement = select(AvailabilityLog).where(
             AvailabilityLog.nidRuta == circuit.nidRuta
-        ).order_by(AvailabilityLog.timestamp.desc()).limit(1)
+        ).order_by(col(AvailabilityLog.timestamp).desc()).limit(1)
         latest_log = session.exec(statement).first()
         if latest_log:
             results.append({
@@ -56,46 +70,35 @@ def get_current_availability(session: Session = Depends(get_session)):
             })
     return results
 
-from typing import List, Optional
-
-# ... (기존 임포트 유지) ...
-
 def get_peru_now():
+    """페루 현지 시간 반환"""
     return datetime.utcnow() - timedelta(hours=5)
 
 @app.get("/api/availability/history")
 def get_availability_history(
-    nidRuta: Optional[int] = Query(default=None), 
+    nid_ruta: Optional[int] = Query(default=None, alias="nidRuta"),
     start_date: Optional[str] = Query(default=None),
     end_date: Optional[str] = Query(default=None),
     session: Session = Depends(get_session)
 ):
-    """지정된 날짜 범위 내의 모든 히스토리 데이터 조회 (시간대 정보 보존)"""
-    
+    """지정된 날짜 범위 내의 히스토리 데이터를 조회 (시간대 정보 포함)"""
     peru_now = get_peru_now()
-    if not start_date:
-        start_dt = peru_now - timedelta(days=7)
-    else:
-        start_dt = datetime.fromisoformat(start_date)
-        
-    if not end_date:
-        end_dt = peru_now
-    else:
-        end_dt = datetime.fromisoformat(end_date)
-    
-    # 집계 로직을 제거하고 모든 로그를 Join하여 반환
+    start_dt = datetime.fromisoformat(start_date) if start_date else (peru_now - timedelta(days=7))
+    end_dt = datetime.fromisoformat(end_date) if end_date else peru_now
+
+    # pylint: disable=no-member
     statement = select(AvailabilityLog, Circuit.ruta).join(
-        Circuit, AvailabilityLog.nidRuta == Circuit.nidRuta
+        Circuit, col(AvailabilityLog.nidRuta) == col(Circuit.nidRuta)
     ).where(
         AvailabilityLog.timestamp >= start_dt,
         AvailabilityLog.timestamp <= end_dt
-    ).order_by(AvailabilityLog.timestamp.asc())
-    
-    if nidRuta is not None:
-        statement = statement.where(AvailabilityLog.nidRuta == nidRuta)
-        
+    ).order_by(col(AvailabilityLog.timestamp).asc())
+
+    if nid_ruta is not None:
+        statement = statement.where(AvailabilityLog.nidRuta == nid_ruta)
+
     results = session.exec(statement).all()
-    
+
     return [
         {
             **log.model_dump(),
@@ -103,27 +106,22 @@ def get_availability_history(
         } for log, ruta in results
     ]
 
-# Hourly stats endpoint 제거됨 (요청에 따라)
-
 # --- Static Files Serving (React Frontend) ---
 
 FRONTEND_DIST = "frontend/dist"
 
 if os.path.exists(FRONTEND_DIST):
-    # assets 폴더 (JS, CSS 등) 마운트
     app.mount("/assets", StaticFiles(directory=f"{FRONTEND_DIST}/assets"), name="assets")
 
-    # 나머지 모든 경로는 index.html로 연결 (React Router 지원)
     @app.get("/{rest_of_path:path}")
     async def react_app(rest_of_path: str):
-        # 파일이 실제로 존재하면 해당 파일 반환
+        """React SPA를 서빙하기 위한 Catch-all 핸들러"""
         file_path = os.path.join(FRONTEND_DIST, rest_of_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-        # 그 외에는 무조건 index.html (SPA 구조)
         return FileResponse(f"{FRONTEND_DIST}/index.html")
 else:
-    print(f"Warning: {FRONTEND_DIST} not found. Frontend will not be served.")
+    logger.warning(f"{FRONTEND_DIST} not found. Frontend will not be served.")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

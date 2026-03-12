@@ -32,9 +32,13 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
-# 백엔드 의존성 복사 및 설치
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Poetry 설치 및 의존성 복사
+RUN pip install --no-cache-dir poetry
+COPY pyproject.toml poetry.lock* README.md ./
+
+# Poetry 설정: 컨테이너 내부이므로 가상환경 생성을 끄고 시스템에 바로 설치
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --no-root
 
 # Playwright 브라우저 설치 (Chromium만)
 RUN playwright install chromium

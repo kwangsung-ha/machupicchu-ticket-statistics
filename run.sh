@@ -10,9 +10,9 @@ print_usage() {
 
 case "$1" in
     "local")
-        echo ">>> Installing Python dependencies..."
-        python3 -m pip install -r requirements.txt
-        python3 -m playwright install chromium
+        echo ">>> Installing dependencies via Poetry..."
+        poetry install
+        poetry run playwright install chromium
         
         echo ">>> Building React Frontend..."
         if [ -d "frontend" ]; then
@@ -22,11 +22,11 @@ case "$1" in
             exit 1
         fi
         
-        echo ">>> Starting FastAPI Backend..."
+        echo ">>> Starting FastAPI Backend via Poetry..."
         export PYTHONPATH=$PYTHONPATH:.
         export DATABASE_URL=sqlite:///./data/machupicchu.db
         mkdir -p data
-        python3 backend/main.py
+        poetry run python backend/main.py
         ;;
     
     "docker")
