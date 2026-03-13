@@ -21,7 +21,8 @@ def crawl_and_save():
     max_retries = 3
     success = False
     target_url = "https://tuboleto.cultura.pe/disponibilidad/llaqta_machupicchu"
-    api_pattern = "**/disponibilidad*"
+    # 바이너리 파일(이미지 등)을 피하고 정확히 JSON API만 낚아채도록 패턴을 구체화
+    api_pattern = "**/comunes/disponibilidad-actual*"
 
     for attempt in range(1, max_retries + 1):
         logger.info(f"--- Attempt {attempt}/{max_retries} ---")
