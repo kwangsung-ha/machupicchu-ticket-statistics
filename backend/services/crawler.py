@@ -49,7 +49,12 @@ def _perform_crawl(target_url, api_pattern, attempt):
             logger.info(f"Navigating and waiting for API response matching: {api_pattern}")
 
             try:
-                with page.expect_response(api_pattern, timeout=180000) as response_info:
+                # URL 패턴이 일치하고 메서드가 POST인 응답만 정확히 기다림 (Preflight/OPTIONS 무시)
+                with page.expect_response(
+                    lambda response: "comunes/disponibilidad-actual" in response.url and
+                                     response.request.method == "POST",
+                    timeout=180000
+                ) as response_info:
                     page.goto(target_url, wait_until="domcontentloaded", timeout=180000)
                     response = response_info.value
                     if response.status == 200:
